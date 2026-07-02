@@ -63,18 +63,66 @@ def fetch_ministry_month(page, ministry_value, ministry_label, month, year):
     page.goto(HOME_URL, wait_until="domcontentloaded", timeout=60000)
 
     # 상단 Search 메뉴 클릭 → SearchMenu
-    try:
-        page.click("a:has-text('Search')", timeout=15000)
-        page.wait_for_load_state("domcontentloaded", timeout=30000)
-    except Exception as e:
-        print(f"  [경고] Search 메뉴 클릭 실패: {e}")
+    # 홈페이지 Search는 __doPostBack('sgzt','') 방식. 정확히 그 링크를 우선 클릭.
+    clicked_search = False
+    for selector in [
+        "a[href*=\"sgzt\"]",
+        "a:has-text('Search Gazette')",
+        "a:has-text('Search')",
+    ]:
+        try:
+            el = page.query_selector(selector)
+            if el:
+                el.click()
+                page.wait_for_load_state("domcontentloaded", timeout=30000)
+                clicked_search = True
+                print(f"  [진입] Search 메뉴 클릭 성공: '{selector}'")
+                break
+        except Exception as e:
+            print(f"  [Search시도 실패] {selector}: {e}")
+    if not clicked_search:
+        print(f"  [경고] Search 메뉴 클릭 실패")
 
-    # SearchMenu에서 Ministry 검색 진입
-    try:
-        page.click("text=/Ministry/i", timeout=15000)
-        page.wait_for_load_state("domcontentloaded", timeout=30000)
-    except Exception as e:
-        print(f"  [경고] Ministry 검색 진입 실패: {e}")
+    # ── 진단: SearchMenu 도달 후 클릭 가능한 링크/버튼 전부 나열 ──
+    print(f"  [진단-SearchMenu] URL={page.url} 제목={page.title()}")
+    clickables = page.query_selector_all("a, input[type=image], input[type=button], input[type=submit]")
+    print(f"  [진단-클릭가능요소 {len(clickables)}개]")
+    for i, el in enumerate(clickables[:40]):
+        try:
+            tag = el.evaluate("e => e.tagName")
+            txt = (el.inner_text() or "").strip()
+            href = el.get_attribute("href") or ""
+            alt = el.get_attribute("alt") or ""
+            elid = el.get_attribute("id") or ""
+            name = el.get_attribute("name") or ""
+            info = f"tag={tag} id='{elid}' name='{name}' text='{txt[:30]}' alt='{alt[:30]}' href='{href[:50]}'"
+            print(f"    [{i}] {info}")
+        except Exception:
+            pass
+    # ─────────────────────────────────────────────────────────
+
+    # SearchMenu에서 Ministry 검색 진입 (정확한 링크는 위 진단 로그로 확정)
+    # 우선 'Ministry Wise' / 'Search by Ministry' 류를 우선 시도, 없으면 SearchMinistry href 링크
+    entered = False
+    for selector in [
+        "a:has-text('Ministry Wise')",
+        "a:has-text('Search by Ministry')",
+        "a:has-text('Ministry wise')",
+        "a[href*='SearchMinistry']",
+        "input[alt*='Ministry']",
+    ]:
+        try:
+            el = page.query_selector(selector)
+            if el:
+                el.click()
+                page.wait_for_load_state("domcontentloaded", timeout=30000)
+                entered = True
+                print(f"  [진입] '{selector}' 로 Ministry 검색 진입 성공")
+                break
+        except Exception as e:
+            print(f"  [진입시도 실패] {selector}: {e}")
+    if not entered:
+        print(f"  [경고] Ministry 검색 진입점을 못 찾음 — 위 클릭가능요소 목록 참고 필요")
 
     # ddlMinistry 있어야 정상
     if page.query_selector("#ddlMinistry") is None:
