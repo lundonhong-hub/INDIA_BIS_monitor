@@ -142,7 +142,26 @@ def fetch_ministry_month(ministry_value, ministry_label, month, year):
     r = s.post(BASE_URL, data=fields, timeout=30)
     r.raise_for_status()
 
-    all_rows = parse_rows(r.text, ministry_label)
+    # ── 진단 로그: 사이트가 실제로 뭘 돌려줬는지 확인 (문제 생기면 이걸로 원인 파악) ──
+    raw = r.text
+    total_match = re.search(r"Total No\.? of Gazettes\s*:\s*(\d+)", raw)
+    has_table = "gvGazetteList" in raw
+    diag = BeautifulSoup(raw, "lxml")
+    sel = diag.find("select", id="ddlMinistry")
+    selected_text = None
+    if sel:
+        opt = sel.find("option", selected=True)
+        selected_text = opt.get_text(strip=True) if opt else None
+    print(f"  [진단] 응답길이={len(raw)} 테이블존재={has_table} "
+          f"'Total No' 매칭={total_match.group(1) if total_match else None} "
+          f"실제선택부처='{selected_text}' (요청: 부처값={ministry_value}, 월/년={month}/{year})")
+    if not has_table or (total_match and total_match.group(1) == "0"):
+        # 문제 재현용: 응답 앞부분 일부를 출력 (개인정보 없음, 사이트 구조 확인 목적)
+        snippet = re.sub(r"\s+", " ", raw)[:500]
+        print(f"  [진단-응답스니펫] {snippet}")
+    # ─────────────────────────────────────────────────────────────────
+
+    all_rows = parse_rows(raw, ministry_label)
     visited = {1}
     to_visit = [p for p in find_next_pages(r.text) if p not in visited]
 
