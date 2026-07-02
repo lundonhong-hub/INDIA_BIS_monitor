@@ -1,0 +1,41 @@
+name: eGazette Monitor
+
+on:
+  schedule:
+    - cron: "*/30 * * * *"   # 30분마다 (UTC 기준)
+  workflow_dispatch: {}        # 수동 실행 버튼
+
+permissions:
+  contents: write              # state.json 자동 커밋용
+
+concurrency:
+  group: egazette-monitor
+  cancel-in-progress: false
+
+jobs:
+  monitor:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Install deps
+        run: pip install requests beautifulsoup4 lxml
+
+      - name: Run monitor
+        env:
+          GMAIL_USER: ${{ secrets.GMAIL_USER }}
+          GMAIL_APP_PASSWORD: ${{ secrets.GMAIL_APP_PASSWORD }}
+          ALERT_TO: ${{ secrets.ALERT_TO }}
+        run: python monitor.py
+
+      - name: Commit updated state
+        run: |
+          git config user.name "github-actions"
+          git config user.email "actions@github.com"
+          git add state.json
+          git diff --staged --quiet || git commit -m "update state $(date -u +%FT%TZ)"
+          git push
