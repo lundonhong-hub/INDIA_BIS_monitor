@@ -126,6 +126,14 @@ def fetch_ministry_month(ministry_value, ministry_label, month, year):
     r.raise_for_status()
     fields = get_hidden_fields(BeautifulSoup(r.text, "lxml"))
 
+    # ── 진단: 최초 GET 응답 상태 확인 (차단 여부를 여기서 먼저 가늠) ──
+    raw0 = r.text
+    has_form0 = 'id="Form1"' in raw0
+    has_table0 = "gvGazetteList" in raw0
+    print(f"  [진단-최초GET] HTTP상태={r.status_code} 응답길이={len(raw0)} "
+          f"Form1존재={has_form0} 테이블존재={has_table0}")
+    # ─────────────────────────────────────────────────────────
+
     fields.update({
         "__EVENTTARGET": "ddlMinistry", "ddlMinistry": ministry_value,
         "rdb_Option": "0", "ddlmonth": str(month), "ddlyear": str(year),
@@ -146,19 +154,31 @@ def fetch_ministry_month(ministry_value, ministry_label, month, year):
     raw = r.text
     total_match = re.search(r"Total No\.? of Gazettes\s*:\s*(\d+)", raw)
     has_table = "gvGazetteList" in raw
+    has_form = 'id="Form1"' in raw or "id='Form1'" in raw
     diag = BeautifulSoup(raw, "lxml")
     sel = diag.find("select", id="ddlMinistry")
     selected_text = None
     if sel:
         opt = sel.find("option", selected=True)
         selected_text = opt.get_text(strip=True) if opt else None
-    print(f"  [진단] 응답길이={len(raw)} 테이블존재={has_table} "
+
+    block_keywords = ["captcha", "access denied", "rejected", "blocked",
+                      "forbidden", "not authorized", "temporarily unavailable"]
+    found_block = [k for k in block_keywords if k in raw.lower()]
+
+    print(f"  [진단] HTTP상태={r.status_code} 응답길이={len(raw)} "
+          f"Form1존재={has_form} 테이블존재={has_table} "
           f"'Total No' 매칭={total_match.group(1) if total_match else None} "
           f"실제선택부처='{selected_text}' (요청: 부처값={ministry_value}, 월/년={month}/{year})")
-    if not has_table or (total_match and total_match.group(1) == "0"):
-        # 문제 재현용: 응답 앞부분 일부를 출력 (개인정보 없음, 사이트 구조 확인 목적)
-        snippet = re.sub(r"\s+", " ", raw)[:500]
-        print(f"  [진단-응답스니펫] {snippet}")
+    print(f"  [진단-헤더] Server={r.headers.get('Server')} "
+          f"Content-Type={r.headers.get('Content-Type')} "
+          f"Set-Cookie존재={'Set-Cookie' in r.headers}")
+    if found_block:
+        print(f"  [진단-차단의심] 발견된 키워드: {found_block}")
+    if not has_form or not has_table:
+        snippet = re.sub(r"\s+", " ", raw)
+        print(f"  [진단-응답스니펫-앞부분] {snippet[:800]}")
+        print(f"  [진단-응답스니펫-중간부분] {snippet[len(snippet)//2:len(snippet)//2+800]}")
     # ─────────────────────────────────────────────────────────────────
 
     all_rows = parse_rows(raw, ministry_label)
