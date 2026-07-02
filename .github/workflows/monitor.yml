@@ -6,7 +6,7 @@ on:
   workflow_dispatch: {}        # 수동 실행 버튼
 
 permissions:
-  contents: write              # state.json 자동 커밋용
+  contents: write
 
 concurrency:
   group: egazette-monitor
@@ -23,7 +23,10 @@ jobs:
           python-version: "3.12"
 
       - name: Install deps
-        run: pip install requests beautifulsoup4 lxml
+        run: pip install playwright requests
+
+      - name: Install Chromium browser
+        run: python -m playwright install --with-deps chromium
 
       - name: Run monitor
         env:
