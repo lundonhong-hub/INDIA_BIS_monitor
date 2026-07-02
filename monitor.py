@@ -63,7 +63,8 @@ def fetch_ministry_month(page, ministry_value, ministry_label, month, year):
     page.goto(HOME_URL, wait_until="domcontentloaded", timeout=60000)
 
     # 상단 Search 메뉴 클릭 → SearchMenu
-    # 홈페이지 Search는 __doPostBack('sgzt','') 방식. 정확히 그 링크를 우선 클릭.
+    # 홈페이지 Search는 __doPostBack('sgzt','') 방식(자바스크립트).
+    # 클릭 후 실제로 페이지(URL 또는 내용)가 바뀔 때까지 명확히 대기해야 함.
     clicked_search = False
     for selector in [
         "a[href*=\"sgzt\"]",
@@ -72,33 +73,50 @@ def fetch_ministry_month(page, ministry_value, ministry_label, month, year):
     ]:
         try:
             el = page.query_selector(selector)
-            if el:
+            if not el:
+                continue
+            before_url = page.url
+            # postback 네비게이션을 기다리며 클릭
+            try:
+                with page.expect_navigation(wait_until="domcontentloaded", timeout=30000):
+                    el.click()
+            except Exception:
+                # 네비게이션 이벤트가 안 잡히면, 내용 변화를 기다림
                 el.click()
-                page.wait_for_load_state("domcontentloaded", timeout=30000)
-                clicked_search = True
-                print(f"  [진입] Search 메뉴 클릭 성공: '{selector}'")
-                break
+                page.wait_for_timeout(3000)
+            # SearchMenu 특유의 요소가 나타날 때까지 대기 시도
+            try:
+                page.wait_for_selector(
+                    "a[href*='SearchMinistry'], a:has-text('Ministry'), #ddlMinistry",
+                    timeout=20000)
+            except Exception:
+                pass
+            clicked_search = True
+            print(f"  [진입] Search 클릭: '{selector}' (URL {before_url[-25:]} → {page.url[-30:]})")
+            break
         except Exception as e:
             print(f"  [Search시도 실패] {selector}: {e}")
     if not clicked_search:
         print(f"  [경고] Search 메뉴 클릭 실패")
 
     # ── 진단: SearchMenu 도달 후 클릭 가능한 링크/버튼 전부 나열 ──
-    print(f"  [진단-SearchMenu] URL={page.url} 제목={page.title()}")
-    clickables = page.query_selector_all("a, input[type=image], input[type=button], input[type=submit]")
-    print(f"  [진단-클릭가능요소 {len(clickables)}개]")
-    for i, el in enumerate(clickables[:40]):
-        try:
-            tag = el.evaluate("e => e.tagName")
-            txt = (el.inner_text() or "").strip()
-            href = el.get_attribute("href") or ""
-            alt = el.get_attribute("alt") or ""
-            elid = el.get_attribute("id") or ""
-            name = el.get_attribute("name") or ""
-            info = f"tag={tag} id='{elid}' name='{name}' text='{txt[:30]}' alt='{alt[:30]}' href='{href[:50]}'"
-            print(f"    [{i}] {info}")
-        except Exception:
-            pass
+    page.wait_for_timeout(2000)  # 페이지 안정화 대기 (컨텍스트 파괴 방지)
+    try:
+        print(f"  [진단-SearchMenu] URL={page.url} 제목={page.title()}")
+        # 이미 SearchMinistry 화면(ddlMinistry 존재)이면 진단 생략하고 바로 진행
+        if page.query_selector("#ddlMinistry") is None:
+            clickables = page.query_selector_all("a")
+            print(f"  [진단-링크 {len(clickables)}개]")
+            for i, el in enumerate(clickables[:50]):
+                try:
+                    txt = (el.inner_text() or "").strip()
+                    href = el.get_attribute("href") or ""
+                    if txt or "aspx" in href.lower() or "doPostBack" in href:
+                        print(f"    [{i}] text='{txt[:35]}' href='{href[:55]}'")
+                except Exception:
+                    pass
+    except Exception as e:
+        print(f"  [진단-SearchMenu 읽기 실패] {e}")
     # ─────────────────────────────────────────────────────────
 
     # SearchMenu에서 Ministry 검색 진입 (정확한 링크는 위 진단 로그로 확정)
