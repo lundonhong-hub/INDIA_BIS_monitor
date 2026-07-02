@@ -131,7 +131,23 @@ def fetch_ministry_month(ministry_value, ministry_label, month, year):
     has_form0 = 'id="Form1"' in raw0
     has_table0 = "gvGazetteList" in raw0
     print(f"  [진단-최초GET] HTTP상태={r.status_code} 응답길이={len(raw0)} "
-          f"Form1존재={has_form0} 테이블존재={has_table0}")
+          f"Form1존재={has_form0} 테이블존재={has_table0} "
+          f"최종URL={r.url}")
+    # body 안의 실제 내용 확인 (JS 렌더링 여부/리다이렉트/안내문 판별)
+    soup0 = BeautifulSoup(raw0, "lxml")
+    body0 = soup0.find("body")
+    if body0:
+        body_text = re.sub(r"\s+", " ", body0.get_text(" ", strip=True))
+        print(f"  [진단-GET body텍스트] {body_text[:600]}")
+        # body 안의 주요 태그 개수
+        print(f"  [진단-GET 태그수] form={len(soup0.find_all('form'))} "
+              f"select={len(soup0.find_all('select'))} "
+              f"input={len(soup0.find_all('input'))} "
+              f"table={len(soup0.find_all('table'))} "
+              f"script={len(soup0.find_all('script'))} "
+              f"noscript={len(soup0.find_all('noscript'))} "
+              f"iframe={len(soup0.find_all('iframe'))} "
+              f"meta_refresh={len(soup0.find_all('meta', attrs={'http-equiv': re.compile('refresh', re.I)}))}")
     # ─────────────────────────────────────────────────────────
 
     fields.update({
