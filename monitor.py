@@ -157,16 +157,21 @@ def collect_from_view_all(page, target):
                 print(f"  [postback 실패] {str(e2)[:50]} (시도 {attempt+1})")
                 continue
 
-        # ★핵심★ 목록 데이터(Gazette ID 패턴)가 실제로 나타날 때까지 대기
-        # 빈 페이지로 넘어가 0건 되는 것 방지
+        # ★핵심★ 목록 데이터가 실제로 나타날 때까지 안전하게 대기
+        # (inner_text 폴링은 페이지 갱신 중 context destroyed 유발 → wait_for_selector 사용)
         got_data = False
-        for _ in range(6):  # 최대 ~12초 대기
-            page.wait_for_timeout(2000)
-            body = page.inner_text("body") if page.query_selector("body") else ""
-            if re.search(r"CG-[A-Z]{2}-[A-Z]-\d{8}-\d+", body):
-                got_data = True
-                break
+        try:
+            # 검색결과형(gvGazetteList) 또는 CG- 링크가 뜰 때까지 대기
+            page.wait_for_function(
+                """() => /CG-[A-Z]{2}-[A-Z]-\\d{8}-\\d+/.test(document.body ? document.body.innerText : '')""",
+                timeout=30000,
+            )
+            got_data = True
+        except Exception:
+            got_data = False
+
         if got_data:
+            page.wait_for_timeout(1500)  # 완전 안정화
             print(f"  [진단-{target}] 진입성공 (시도 {attempt+1}) URL={page.url}")
             break
         else:
