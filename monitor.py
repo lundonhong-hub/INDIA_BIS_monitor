@@ -165,25 +165,58 @@ def collect_from_view_all(page, target):
 
     # 결과 파싱 + 페이지네이션
     rows += parse_gazette_rows(page)
-    page_num = 2
+
+    # 페이저 구조 진단 (첫 페이지에서 한 번만)
+    pager_texts = []
+    for a in page.query_selector_all("tr.pager a, .pager a"):
+        try:
+            pager_texts.append(a.inner_text().strip())
+        except Exception:
+            pass
+    print(f"  [진단-{target} 페이저] 링크들={pager_texts}")
+
+    # 페이지네이션: 매번 페이저를 새로 조회(stale 방지),
+    # 클릭 후 expect_navigation 또는 네트워크 유휴 대기로 context destroyed 회피
+    visited_pages = {1}
     while True:
+        # 현재 화면에서 아직 안 간 다음 페이지 번호 찾기
+        next_num = None
+        links = page.query_selector_all("tr.pager a, .pager a")
+        candidates = []
+        for a in links:
+            t = a.inner_text().strip()
+            if t.isdigit():
+                candidates.append(int(t))
+        candidates = sorted(set(candidates) - visited_pages)
+        if not candidates:
+            break
+        next_num = candidates[0]
+
+        # 다음 페이지 링크를 다시 조회해서 클릭 (stale 방지)
         target_link = None
         for a in page.query_selector_all("tr.pager a, .pager a"):
-            if a.inner_text().strip() == str(page_num):
+            if a.inner_text().strip() == str(next_num):
                 target_link = a
                 break
         if not target_link:
             break
+
         try:
-            target_link.click(timeout=60000)
-            page.wait_for_load_state("domcontentloaded", timeout=60000)
-            page.wait_for_timeout(1500)
+            try:
+                with page.expect_navigation(wait_until="domcontentloaded", timeout=60000):
+                    target_link.click(timeout=30000)
+            except Exception:
+                # 네비게이션 이벤트 안 잡히면 postback 후 안정화 대기
+                target_link.click(timeout=30000)
+            page.wait_for_timeout(2500)  # DOM 안정화 (context destroyed 방지)
+            # 새 페이지가 로드됐는지 gvGazetteList 또는 행 존재 확인
+            page.wait_for_selector("tr", timeout=30000)
             rows += parse_gazette_rows(page)
-            page_num += 1
-            if page_num > 30:
+            visited_pages.add(next_num)
+            if len(visited_pages) > 30:
                 break
         except Exception as e:
-            print(f"  [경고] {page_num}p 이동 실패: {str(e)[:60]}")
+            print(f"  [경고] {next_num}p 이동 실패: {str(e)[:60]}")
             break
 
     print(f"  [진단-{target}] 수집 {len(rows)}건")
