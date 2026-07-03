@@ -18,6 +18,7 @@ from email.mime.text import MIMEText
 from email.mime.multipart import MIMEMultipart
 from email.mime.application import MIMEApplication
 from datetime import datetime
+from html import escape
 from playwright.sync_api import sync_playwright
 
 # ══════════════════════════════════════════════════════════
@@ -356,6 +357,65 @@ def send_email(matches):
     print(f"[알림 발송] 총 {len(matches)}건 (첨부 {len(to_attach)}, 링크 {len(to_link)}) -> {to}")
 
 
+def send_telegram(matches):
+    """텔레그램으로 알림 발송 (PDF도 첨부)."""
+    token = os.environ.get("TELEGRAM_TOKEN")
+    chat_id = os.environ.get("TELEGRAM_CHAT_ID")
+    if not token or not chat_id:
+        print("[텔레그램] 토큰/chat_id 없음 → 건너뜀")
+        return
+
+    api = f"https://api.telegram.org/bot{token}"
+
+    for m in matches:
+        gazette_id = m.get("gazette_id", "")
+        subject = m.get("subject", "")
+        ministry = m.get("ministry", "")
+        matched = m.get("_matched", [])
+        pdf_url = m.get("_pdf_url", "")
+
+        # Telegram HTML parse_mode 사용 시 사용자/사이트 텍스트는 escape 처리
+        safe_matched = ", ".join(str(x) for x in matched)
+        safe_subject = escape(subject[:200])
+        safe_ministry = escape(ministry)
+        safe_id = escape(gazette_id)
+        safe_pdf_url = escape(pdf_url)
+
+        text = (
+            f"🔔 <b>인도 eGazette 신규 공보</b>\n\n"
+            f"[{escape(safe_matched)}] 매칭\n"
+            f"<b>{safe_subject}</b>\n"
+            f"부처: {safe_ministry}\n"
+            f"ID: {safe_id}\n"
+            f"PDF: {safe_pdf_url}"
+        )
+
+        try:
+            requests.post(
+                f"{api}/sendMessage",
+                data={
+                    "chat_id": chat_id,
+                    "text": text,
+                    "parse_mode": "HTML",
+                    "disable_web_page_preview": True,
+                },
+                timeout=30,
+            )
+
+            # PDF 있으면 문서로 첨부
+            if m.get("_pdf_bytes"):
+                requests.post(
+                    f"{api}/sendDocument",
+                    data={"chat_id": chat_id},
+                    files={"document": (pdf_filename(m), m["_pdf_bytes"], "application/pdf")},
+                    timeout=60,
+                )
+        except Exception as e:
+            print(f"[텔레그램 전송 실패] {gazette_id}: {str(e)[:80]}")
+
+    print(f"[텔레그램 발송] {len(matches)}건 → chat {chat_id}")
+
+
 def main():
     all_rows = []
     seen_ids = set()
@@ -402,6 +462,7 @@ def main():
         print(f"[매칭] 신규 {len(new_matches)}건 → PDF 확보")
         enrich_with_pdf(new_matches, cookies)
         send_email(new_matches)
+        send_telegram(new_matches)
     else:
         print("[결과] 신규 매칭 없음")
 
